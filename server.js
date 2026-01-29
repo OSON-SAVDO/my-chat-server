@@ -1,69 +1,75 @@
 const io = require("socket.io")(process.env.PORT || 3000, {
-  cors: { origin: "*" }
+    cors: {
+        origin: "*", // Иҷозат ба ҳамаи доменҳо (Netlify, Vercel ва ғайра)
+        methods: ["GET", "POST"]
+    }
 });
 
+// Рӯйхати корбарони онлайн
 let users = {};
 
 io.on("connection", (socket) => {
-  console.log("Корбар пайваст шуд: " + socket.id);
+    console.log("Корбари нав пайваст шуд: " + socket.id);
 
-  // Бақайдгирии рақами телефон
-  socket.on("register", (phone) => {
-    users[phone] = socket.id;
-    console.log(`Рақами ${phone} бо ID ${socket.id} сабт шуд`);
-  });
+    // 1. Бақайдгирии корбар бо рақами телефон
+    socket.on("register", (phone) => {
+        users[phone] = socket.id;
+        socket.phone = phone; // Рақамро дар дохили сокет захира мекунем
+        console.log(`Корбар сабт шуд: ${phone} (ID: ${socket.id})`);
+    });
 
-  // Фиристодани паёмҳо (матн, овоз, акс)
-  socket.on("message", (data) => {
-    const targetSocket = users[data.toPhone];
-    if (targetSocket) {
-      io.to(targetSocket).emit("message", {
-        fromPhone: Object.keys(users).find(key => users[key] === socket.id),
-        data: data.data,
-        type: data.type
-      });
-    }
-  });
+    // 2. Интиқоли паёмҳо (Матн, Акс, Видео, Овоз)
+    socket.on("message", (data) => {
+        const targetSocketId = users[data.toPhone];
+        if (targetSocketId) {
+            io.to(targetSocketId).emit("message", {
+                fromPhone: data.fromPhone,
+                data: data.data,
+                type: data.type
+            });
+        }
+    });
 
-  // --- СИГНАЛҲО БАРОИ ЗАНГ (WebRTC) ---
+    // 3. ЗАНГИ ВИДЕОӢ ВА АУДИОӢ (WebRTC Signaling)
+    
+    // Дархости занг (Offer)
+    socket.on("call-request", (data) => {
+        const targetSocketId = users[data.toPhone];
+        if (targetSocketId) {
+            console.log(`Занг аз ${data.fromPhone} ба ${data.toPhone}`);
+            io.to(targetSocketId).emit("incoming-call", {
+                fromPhone: data.fromPhone,
+                signal: data.signal,
+                type: data.type
+            });
+        }
+    });
 
-  // 1. Дархости занг
-  socket.on("call-request", (data) => {
-    const targetSocket = users[data.toPhone];
-    if (targetSocket) {
-      io.to(targetSocket).emit("incoming-call", {
-        fromPhone: data.fromPhone,
-        signal: data.signal,
-        type: data.type
-      });
-    }
-  });
+    // Ҷавоби занг (Answer)
+    socket.on("call-answer", (data) => {
+        const targetSocketId = users[data.toPhone];
+        if (targetSocketId) {
+            io.to(targetSocketId).emit("call-answered", {
+                signal: data.signal
+            });
+        }
+    });
 
-  // 2. Ҷавоб ба занг
-  socket.on("call-answer", (data) => {
-    const targetSocket = users[data.toPhone];
-    if (targetSocket) {
-      io.to(targetSocket).emit("call-answered", {
-        signal: data.signal
-      });
-    }
-  });
+    // Қатъи занг
+    socket.on("end-call", (data) => {
+        const targetSocketId = users[data.toPhone];
+        if (targetSocketId) {
+            io.to(targetSocketId).emit("call-ended");
+        }
+    });
 
-  // 3. Анҷоми занг
-  socket.on("end-call", (data) => {
-    const targetSocket = users[data.toPhone];
-    if (targetSocket) {
-      io.to(targetSocket).emit("call-ended");
-    }
-  });
-
-  socket.on("disconnect", () => {
-    for (let phone in users) {
-      if (users[phone] === socket.id) {
-        delete users[phone];
-        break;
-      }
-    }
-    console.log("Корбар ҷудо шуд");
-  });
+    // 4. Вақте корбар аз шабака мебарояд
+    socket.on("disconnect", () => {
+        if (socket.phone) {
+            delete users[socket.phone];
+            console.log(`Корбар ҷудо шуд: ${socket.phone}`);
+        }
+    });
 });
+
+console.log("Сервер дар порти 3000 кор карда истодааст...");
