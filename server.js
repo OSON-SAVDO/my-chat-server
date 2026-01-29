@@ -1,56 +1,69 @@
-const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http, {
+const io = require("socket.io")(process.env.PORT || 3000, {
   cors: { origin: "*" }
 });
 
-let users = {}; // Рақам : socket.id
+let users = {};
 
-io.on('connection', (socket) => {
-  console.log('Пайвастшавии нав: ' + socket.id);
+io.on("connection", (socket) => {
+  console.log("Корбар пайваст шуд: " + socket.id);
 
-  // Сабти номи корбар
-  socket.on('register', (phone) => {
-    socket.phone = phone;
+  // Бақайдгирии рақами телефон
+  socket.on("register", (phone) => {
     users[phone] = socket.id;
-    console.log(`Корбар ${phone} онлайн шуд`);
+    console.log(`Рақами ${phone} бо ID ${socket.id} сабт шуд`);
   });
 
-  // Фиристодани паёми матнӣ ё голос
-  socket.on('message', (data) => {
+  // Фиристодани паёмҳо (матн, овоз, акс)
+  socket.on("message", (data) => {
     const targetSocket = users[data.toPhone];
     if (targetSocket) {
-      io.to(targetSocket).emit('message', {
-        fromPhone: socket.phone,
+      io.to(targetSocket).emit("message", {
+        fromPhone: Object.keys(users).find(key => users[key] === socket.id),
         data: data.data,
-        type: data.type || 'text' // метавонад 'text' ё 'voice' бошад
+        type: data.type
       });
     }
   });
 
-  // Мантиқи зангҳо (WebRTC Signaling)
-  socket.on('call-request', (data) => {
+  // --- СИГНАЛҲО БАРОИ ЗАНГ (WebRTC) ---
+
+  // 1. Дархости занг
+  socket.on("call-request", (data) => {
     const targetSocket = users[data.toPhone];
     if (targetSocket) {
-      io.to(targetSocket).emit('incoming-call', {
-        fromPhone: socket.phone,
-        type: data.type // 'audio' ё 'video'
+      io.to(targetSocket).emit("incoming-call", {
+        fromPhone: data.fromPhone,
+        signal: data.signal,
+        type: data.type
       });
     }
   });
 
-  socket.on('disconnect', () => {
+  // 2. Ҷавоб ба занг
+  socket.on("call-answer", (data) => {
+    const targetSocket = users[data.toPhone];
+    if (targetSocket) {
+      io.to(targetSocket).emit("call-answered", {
+        signal: data.signal
+      });
+    }
+  });
+
+  // 3. Анҷоми занг
+  socket.on("end-call", (data) => {
+    const targetSocket = users[data.toPhone];
+    if (targetSocket) {
+      io.to(targetSocket).emit("call-ended");
+    }
+  });
+
+  socket.on("disconnect", () => {
     for (let phone in users) {
       if (users[phone] === socket.id) {
         delete users[phone];
         break;
       }
     }
+    console.log("Корбар ҷудо шуд");
   });
-});
-
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-  console.log('Сервер дар порти ' + PORT + ' кор мекунад');
 });
